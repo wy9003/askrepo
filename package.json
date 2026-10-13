@@ -1,0 +1,20 @@
+{
+  "name": "askrepo",
+  "version": "0.1.0",
+  "description": "Chat with any codebase — a small RAG + tool-using agent. Zero runtime dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Yu Wang",
+  "repository": "github:wy9003/askrepo",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
