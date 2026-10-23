@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { seedDemo } from "../src/sql/seed.ts";
 import { introspect } from "../src/sql/introspect.ts";
 import { applyGuardrails, explainGuard } from "../src/sql/guardrails.ts";
+import { extractSQL } from "../src/sql/generate.ts";
 import { askSql } from "../src/sql/index.ts";
 import { parseOllamaLine } from "../src/providers.ts";
 import { resultsEqual, attribute } from "../src/sql/eval/eval.ts";
@@ -36,6 +37,22 @@ test("guardrail: LIMIT injected when absent, kept when present", () => {
   assert.match(g.sql, /LIMIT 1000$/);
   const g2 = applyGuardrails("SELECT id FROM customers LIMIT 5", schema);
   assert.equal(g2.sql, "SELECT id FROM customers LIMIT 5");
+});
+
+test("semicolons inside string literals survive extraction and read-only check", () => {
+  // Literal containing a semicolon must not truncate the SQL…
+  const sql = extractSQL("SELECT reason FROM returns WHERE reason = 'a;b' AND id = 1");
+  assert.ok(sql.endsWith("id = 1"), `truncated: ${sql}`);
+  // …and must not be treated as a second (non-read-only) statement.
+  const schema = introspect(demoDb());
+  const g = applyGuardrails(sql, schema);
+  assert.deepEqual(g.violations, []);
+});
+
+test("guardrail: oversized LIMIT is clamped, not just missing LIMIT injected", () => {
+  const schema = introspect(demoDb());
+  const g = applyGuardrails("SELECT id FROM customers LIMIT 500000", schema);
+  assert.match(g.sql, /LIMIT 1000$/);
 });
 
 test("guardrail: EXPLAIN preflight rejects cartesian scans", () => {

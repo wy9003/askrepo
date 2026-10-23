@@ -39,12 +39,15 @@ export function buildSqlMessages(ctx: SqlContext, repairNote?: string) {
   return messages;
 }
 
-/** Pull the SQL out of a model reply: ```sql fence first, else first SELECT/WITH statement. */
+/** Pull the SQL out of a model reply: ```sql fence first, else from the first
+ *  SELECT/WITH to the end of the text (a greedy take — splitting on ";" would
+ *  truncate SQL whose string literals contain semicolons). */
 export function extractSQL(text: string): string {
   const fence = text.match(/```sql\s*([\s\S]*?)```/i) ?? text.match(/```\s*([\s\S]*?)```/);
   const candidate = (fence ? fence[1] ?? text : text).trim();
-  const stmt = candidate.match(/((?:WITH|SELECT)[\s\S]*?)(?:;|$)/i);
-  return (stmt ? stmt[1] ?? candidate : candidate).replace(/;\s*$/, "").trim();
+  const start = candidate.search(/\b(?:WITH|SELECT)\b/i);
+  const body = start >= 0 ? candidate.slice(start) : candidate;
+  return body.replace(/;\s*$/, "").trim();
 }
 
 export async function generateSQL(provider: ChatProvider, ctx: SqlContext, repairNote?: string): Promise<string> {

@@ -35,7 +35,10 @@ export interface EvalRun {
   perQuestion: { id: number; difficulty: string; pass: boolean; attribution?: string; sql?: string; ambiguous?: boolean }[];
 }
 
-/** Order-insensitive result comparison with numeric tolerance. */
+/** Order-insensitive result comparison with numeric tolerance.
+ *  Known blind spot, accepted by design: rows are compared as multisets of
+ *  cell values, so a result with two swapped columns of distinct types can
+ *  false-pass. Ground-truth SQL in the suite avoids relying on this. */
 export function resultsEqual(a: Record<string, unknown>[], b: Record<string, unknown>[]): boolean {
   if (a.length !== b.length) return false;
   const norm = (rows: Record<string, unknown>[]) =>

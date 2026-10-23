@@ -22,16 +22,18 @@ export function applyGuardrails(rawSql: string, schema: Schema, opts: GuardOptio
   const maxRows = opts.maxRows ?? 1000;
   const violations: string[] = [];
   let sql = rawSql.trim().replace(/;+\s*$/, "");
+  const withoutStrings = sql.replace(/'(?:[^']|'')*'/g, "''");
 
   // 1) Read-only: every statement must start with SELECT or WITH.
-  const statements = sql.split(";").map((s) => s.trim()).filter(Boolean);
+  //    Split on the string-stripped SQL so semicolons inside literals
+  //    (WHERE reason = 'a;b') don't create phantom fragments.
+  const statements = withoutStrings.split(";").map((s) => s.trim()).filter(Boolean);
   if (statements.length === 0) violations.push("empty statement");
   for (const st of statements) {
     if (!/^(select|with)\b/i.test(st)) violations.push(`non-read-only statement: ${st.slice(0, 40)}…`);
   }
 
   // 2) No destructive keywords outside string literals (heuristic, documented).
-  const withoutStrings = sql.replace(/'(?:[^']|'')*'/g, "''");
   const kw = withoutStrings.match(FORBIDDEN);
   if (kw) violations.push(`forbidden keyword(s): ${[...new Set(kw.map((k) => k.toUpperCase()))].join(", ")}`);
 
@@ -46,8 +48,12 @@ export function applyGuardrails(rawSql: string, schema: Schema, opts: GuardOptio
   }
   if (unknown.size) violations.push(`unknown table(s): ${[...unknown].join(", ")}`);
 
-  // 4) LIMIT injection when absent.
-  if (violations.length === 0 && !/\blimit\b/i.test(withoutStrings)) sql += ` LIMIT ${maxRows}`;
+  // 4) LIMIT enforcement: inject when absent, clamp when excessive.
+  if (violations.length === 0) {
+    const lm = withoutStrings.match(/\bLIMIT\s+(\d+)/i);
+    if (!lm) sql += ` LIMIT ${maxRows}`;
+    else if (Number(lm[1]) > maxRows) sql = sql.replace(/\bLIMIT\s+\d+/i, `LIMIT ${maxRows}`);
+  }
 
   return { sql, violations };
 }
