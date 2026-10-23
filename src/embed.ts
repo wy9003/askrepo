@@ -12,7 +12,7 @@ const BATCH = 64;
 export class OpenAIEmbedder implements Embedder {
   readonly dim = 1536; // text-embedding-3-small
 
-  constructor(private apiKey: string, private model = "text-embedding-3-small") {}
+  constructor(private apiKey: string, private model = process.env.ASKREPO_EMBED_MODEL || "text-embedding-3-small") {}
 
   async embed(texts: string[]): Promise<number[][]> {
     const out: number[][] = [];
