@@ -38,15 +38,20 @@ export function accumulateOpenAI(acc: OpenAIAcc, payload: unknown): void {
   }
 }
 
+/** OpenAI-compatible chat (api.openai.com, or any compatible endpoint like
+ *  bigmodel's GLM v4 via OPENAI_BASE_URL) over raw REST + SSE. */
 export class OpenAIChat implements ChatProvider {
   readonly name = "openai";
+  private readonly baseUrl: string;
   constructor(
     private apiKey: string,
     private model = process.env.ASKREPO_OPENAI_MODEL || "gpt-4o-mini",
-  ) {}
+  ) {
+    this.baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  }
 
   async chat(messages: Message[], tools: ToolSpec[], opts: ChatOptions = {}): Promise<ChatResult> {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
       body: JSON.stringify({

@@ -5,7 +5,8 @@ export interface Embedder {
   embed(texts: string[]): Promise<number[][]>;
 }
 
-const OPENAI_URL = "https://api.openai.com/v1/embeddings";
+const OPENAI_URL = () =>
+  ((process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "")) + "/embeddings";
 const BATCH = 64;
 
 export class OpenAIEmbedder implements Embedder {
@@ -25,7 +26,7 @@ export class OpenAIEmbedder implements Embedder {
   private async embedBatch(batch: string[]): Promise<number[][]> {
     let lastErr: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await fetch(OPENAI_URL, {
+      const res = await fetch(OPENAI_URL(), {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
         body: JSON.stringify({ model: this.model, input: batch }),
