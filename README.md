@@ -1,34 +1,84 @@
 # askrepo
 
-**Chat with any codebase.** A small, dependency-free RAG + tool-using agent that indexes a repository and answers questions about it with file/line citations.
+**Two AI engineering demos in one zero-dependency TypeScript repo:**
+
+1. **Chat with any codebase** — RAG + tool-using agent that answers questions about a repository with file-and-line citations.
+2. **Text-to-SQL** — natural-language querying of a live database, with FK-graph join closure, deterministic guardrails, a self-repair loop, and a reproducible evaluation harness.
 
 ```
 $ askrepo ask "where is rate limiting implemented?"
-[step 1] [tool] search_docs {"query":"rate limit middleware"}
-[step 2] [tool] read_file {"path":"src/middleware/ratelimit.ts","startLine":1,"endLine":60}
-Rate limiting is implemented as Express middleware in src/middleware/ratelimit.ts:18-52.
-A token bucket per client IP is created lazily on line 24 and refilled in `take()`
-on line 37; requests exceeding the bucket get a 429 with `Retry-After` (line 48).
-(3 steps, 2 tool calls)
+[tool] search_docs → [tool] read_file
+Rate limiting lives in src/middleware/ratelimit.ts:18-52 … (3 steps, 2 tool calls)
+
+$ askrepo sql ask "total revenue per customer country"
+tables: customers, orders, payments (closure added: orders)
+```sql
+SELECT c.country, SUM(p.amount_cents) FROM customers c JOIN orders o ON o.customer_id=c.id
+JOIN payments p ON p.order_id=o.id GROUP BY c.country
+```
 ```
 
-## Why this exists
+## Why this repo exists
 
-askrepo is a compact, readable demonstration of the patterns behind production
-LLM features — small enough to read in one sitting, real enough to extend:
+It demonstrates the patterns behind production LLM features — small enough to read in one sitting, real enough to extend:
 
 | Pattern | Where |
 |---|---|
 | RAG pipeline: scan → chunk → embed → retrieve | `src/scan.ts`, `src/chunk.ts`, `src/embed.ts`, `src/store.ts` |
-| Agent loop with tool use (plan → call → observe → answer) | `src/agent.ts`, `src/tools.ts` |
-| Hand-rolled OpenAI **and** Anthropic REST + SSE streaming, normalized to one interface | `src/providers.ts` |
-| Cosine-similarity vector store with JSON persistence | `src/store.ts` |
-| Path-confined file tools (no prompt-injected directory escapes) | `src/tools.ts` |
-| Deterministic offline embedder so tests need no API keys | `src/embed.ts` |
+| Agent loop with tool use and a step budget | `src/agent.ts`, `src/tools.ts` |
+| Hand-rolled OpenAI **and** Anthropic REST/SSE streaming behind one interface | `src/providers.ts` |
+| **Local inference (Ollama) as a first-class deployment mode** | `src/providers.ts` (`OllamaChat`) |
+| Text-to-SQL: schema retrieval + generation + execution with repair | `src/sql/` |
+| **FK-graph join-path closure** (see below) | `src/sql/fkgraph.ts` |
+| **Deterministic guardrails** (model-independent) | `src/sql/guardrails.ts` |
+| **Evaluation harness with execution-equivalence scoring & error attribution** | `src/sql/eval/` |
 
-**Zero runtime dependencies.** Everything above is built on `fetch` and the
-Node standard library — which also makes the interesting parts easy to read
-instead of hidden behind SDKs.
+**Zero runtime dependencies.** Everything above is built on `fetch` and Node built-ins (`node:sqlite`, `node:test`) — the interesting parts stay readable instead of hidden behind SDKs.
+
+## Text-to-SQL: the three ideas worth reading
+
+### 1. FK-graph join closure (`src/sql/fkgraph.ts`)
+
+Vector retrieval returns the *k* most relevant tables — but that set is often **not connected** in the foreign-key graph, so the model hallucinates join keys (valid SQL, silently wrong results). Closure grows the selected set with the shortest FK paths so the schema handed to the model is always join-complete. Pure graph code, no LLM:
+
+```
+retrieve {customers, products}  →  closure adds {orders, order_items}
+                                   joins: orders.customer_id = customers.id
+                                          order_items.order_id = orders.id
+                                          order_items.product_id = products.id
+```
+
+### 2. Deterministic guardrails (`src/sql/guardrails.ts`)
+
+Between the model and the database sit four checks that never depend on how smart the model is:
+
+- **read-only enforcement** — every statement must start with `SELECT`/`WITH`; destructive keywords rejected outside string literals; multi-statements rejected
+- **identifier verification** — every `FROM`/`JOIN` table must exist in the live catalog (hallucinated tables bounce)
+- **LIMIT injection** — missing row caps are added before execution
+- **EXPLAIN preflight** — the query plan's estimated scan cardinality (alias-resolved back to real tables) must stay under a threshold; cartesian products bounce
+
+When a guardrail rejects, the violation is fed back to the model in a **self-repair loop** (≤3 rounds) — measured separately in the eval harness.
+
+### 3. Evaluation as a first-class artifact (`src/sql/eval/`)
+
+A 40-question suite (easy/medium/hard + deliberately ambiguous) over a deterministic seeded database, scored by **execution-result equivalence** (order-insensitive, numeric tolerance), with failed questions attributed to *schema / join / logic* classes. One command reproduces every number:
+
+```bash
+npx tsx src/cli.ts sql eval --provider openai          # full suite
+npx tsx src/cli.ts sql eval --provider openai --ab     # with/without FK closure
+npx tsx src/cli.ts sql eval --provider ollama          # fully local run
+```
+
+`--ab` answers the question that actually matters: **how many points does join-path closure add?**
+
+## Deployment modes (data boundaries as configuration, not code)
+
+The `ChatProvider` abstraction makes the LLM endpoint a config switch — the same pipeline runs in three data-boundary modes:
+
+| mode | how | data leaves the machine? |
+|---|---|---|
+| Public API | `--provider openai` / `anthropic` | yes |
+| Fully local | `--provider ollama` (`OLLAMA_BASE_URL`, `ASKREPO_OLLAMA_MODEL`) | never |
 
 ## Quickstart
 
@@ -36,78 +86,48 @@ instead of hidden behind SDKs.
 git clone https://github.com/wy9003/askrepo && cd askrepo
 npm install            # dev deps only (tsx, typescript)
 
-export OPENAI_API_KEY=sk-...        # embeddings + chat
-# export ANTHROPIC_API_KEY=sk-ant-...  # or use Claude for chat
+# Text-to-SQL (offline smoke, no keys):
+npx tsx src/cli.ts sql init                     # seed the demo e-commerce DB
+npx tsx src/cli.ts sql ask "how many orders" --offline
 
-npx tsx src/cli.ts index            # index the current repo
-npx tsx src/cli.ts ask "how does the agent loop terminate?"
+# Text-to-SQL (real, with any provider):
+export OPENAI_API_KEY=sk-...                    # or ANTHROPIC_API_KEY, or run Ollama
+npx tsx src/cli.ts sql ask "top 5 products by units sold"
+
+# Codebase Q&A (v1):
+npx tsx src/cli.ts index && npx tsx src/cli.ts ask "how does the agent loop terminate?"
 ```
-
-Switch chat providers with `--provider anthropic` (or `ASKREPO_CHAT_PROVIDER`).
-Models default to `gpt-4o-mini` / `claude-sonnet-4-5` and can be overridden via
-`ASKREPO_OPENAI_MODEL` / `ASKREPO_ANTHROPIC_MODEL`.
-
-### No API key? Offline mode
-
-```bash
-npx tsx src/cli.ts index --offline
-npx tsx src/cli.ts ask "anything" --offline   # retrieval-only: prints top chunks
-```
-
-Offline mode uses a deterministic trigram-hash embedder (not semantic, but it
-exercises the whole pipeline) and skips the LLM entirely.
-
-## How it works
-
-```
-            ┌──────────────────────── indexing ────────────────────────┐
-            │                                                            │
- files ──►  scan (ext allowlist, skip node_modules, size caps)          │
-        ──► chunk (line-aware, ~300-token target, 6-line overlap)       │
-        ──► embed (OpenAI text-embedding-3-small, batched, retried)     │
-        ──► store (cosine similarity, persisted to .askrepo/index.json) │
-            └────────────────────────────────────────────────────────────┘
-
-            ┌────────────────────────── asking ─────────────────────────┐
- question ─► agent loop (budget: --max-steps)                           │
-        ─►  LLM (OpenAI / Anthropic, streamed SSE)                      │
-        ─►  tool calls: search_docs / read_file / list_files            │
-        ─►  grounded answer with path:startLine-endLine citations       │
-            └────────────────────────────────────────────────────────────┘
-```
-
-Design notes:
-
-- **Chunking** is line-aware instead of naive fixed-width slicing, so chunks
-  never cut a line in half and always carry their 1-based line range — that is
-  what makes citations trustworthy.
-- **The vector store is hand-rolled on purpose.** At demo scale, exact cosine
-  over a Float array is instant; the `add/search/save/load` surface maps 1:1
-  onto Qdrant or pgvector when a corpus outgrows memory.
-- **Providers are normalized** behind a 1-method interface (`chat`), with SSE
-  accumulation implemented as pure functions (`accumulateOpenAI`,
-  `accumulateAnthropic`) that are unit-tested against synthetic streams.
-- **The agent loop is ~40 lines** and provider-agnostic: chat → tool calls →
-  results → chat, with a hard step budget so a confused model cannot loop.
 
 ## Tests
 
 ```bash
-npm test        # node:test — chunker, store, scanner, SSE accumulators, agent loop
+npm test          # 27 tests: chunker, store, scanner, SSE accumulators, agent loop,
+                  # FK closure, guardrails (incl. DROP-table / hallucinated-table /
+                  # cartesian-scan attack cases), repair loop, eval comparator
 npm run typecheck
 ```
 
-All tests run offline; the mock embedder and scripted providers stand in for
-the network.
+All tests run offline; mock embedders and scripted providers stand in for the network.
 
-## Limitations / roadmap
+## Repository layout
 
-- Embeddings are OpenAI-only (Anthropic has no embeddings API). A local
-  embedder (e.g. transformers.js) would remove the last online dependency of
-  `index`.
-- Single index per repo, no incremental re-indexing (file hashes would fix it).
-- No re-ranking pass after retrieval; a small cross-encoder would lift precision.
-- Chat history is per-question; a `--session` mode would allow follow-ups.
+```
+src/
+  cli.ts            entry: index | ask | sql init | sql ask | sql eval
+  agent.ts tools.ts # v1: tool-using agent loop
+  scan.ts chunk.ts  # v1: repo scanning + line-aware chunking
+  embed.ts store.ts # embeddings (OpenAI / mock) + cosine store
+  providers.ts      OpenAI / Anthropic SSE + Ollama NDJSON behind one interface
+  sql/
+    seed.ts         deterministic synthetic e-commerce DB (9 tables)
+    introspect.ts   tables/columns/FKs from the live catalog
+    fkgraph.ts      FK-graph join-path closure
+    generate.ts     dialect-aware prompt assembly + SQL extraction
+    guardrails.ts   read-only / identifiers / LIMIT / EXPLAIN preflight
+    execute.ts      execution
+    index.ts        pipeline with self-repair loop
+    eval/           40-question suite + scoring + attribution + report
+```
 
 ## License
 

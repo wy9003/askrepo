@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { chunkText } from "./chunk.ts";
 import { MockEmbedder, OpenAIEmbedder, type Embedder } from "./embed.ts";
 import { runAgent } from "./agent.ts";
-import { AnthropicChat, OpenAIChat, type ChatProvider } from "./providers.ts";
+import { AnthropicChat, OpenAIChat, OllamaChat, type ChatProvider } from "./providers.ts";
 import { scanRepo } from "./scan.ts";
 import { VectorStore } from "./store.ts";
 import { createToolExecutor } from "./tools.ts";
@@ -58,6 +58,7 @@ function makeEmbedder(offline: boolean): Embedder {
 }
 
 function makeChatProvider(name: string): ChatProvider {
+  if (name === "ollama") return new OllamaChat();
   if (name === "anthropic") {
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key) { console.error("Set ANTHROPIC_API_KEY."); process.exit(1); }
@@ -153,8 +154,27 @@ else if (args.command === "sql") {
     console.log(`\`\`\`sql\n${res.sql}\n\`\`\``);
     console.log(`rows: ${res.rowCount}${res.truncated ? " (truncated)" : ""}`);
     console.table(res.rows.slice(0, 20));
+  } else if (sub === "eval") {
+    const { seedDemo } = await import("./sql/seed.ts");
+    const { runEval, formatReport } = await import("./sql/eval/eval.ts");
+    const { ScriptedSqlProvider } = await import("./sql/offline.ts");
+    const limitIdx = process.argv.indexOf("--limit");
+    const limit = limitIdx >= 0 ? Number(process.argv[limitIdx + 1]) || undefined : undefined;
+    const ab = process.argv.includes("--ab");
+    const db = new DatabaseSync(":memory:");
+    seedDemo(db); // deterministic suite — eval is reproducible by construction
+    const provider = args.offline ? new ScriptedSqlProvider() : makeChatProvider(args.provider);
+    const embedder = args.offline ? new MockEmbedder() : makeEmbedder(args.offline);
+    const label = args.offline ? "scripted(offline)" : provider.name;
+    const runs = [await runEval(db, { provider, embedder, limit, closureEnabled: true, label })];
+    if (ab) runs.push(await runEval(db, { provider, embedder, limit, closureEnabled: false, label: label + " · no-closure" }));
+    const report = formatReport(runs);
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(args.root, ".askrepo/eval-report.md"), report);
+    console.log(report);
+    console.error(`\nreport → ${join(args.root, ".askrepo/eval-report.md")}`);
   } else {
-    console.error('Usage: askrepo sql init | ask "question"');
+    console.error('Usage: askrepo sql init | ask "question" | eval [--limit N] [--ab]');
     process.exit(1);
   }
 } else {

@@ -178,6 +178,63 @@ function safeJson(s: string): unknown {
   }
 }
 
+/* --------------------------------- Ollama (local) --------------------------- */
+
+/** NDJSON chunk from Ollama's /api/chat stream. */
+export interface OllamaChunk {
+  message?: { content?: string };
+  done?: boolean;
+}
+
+export function parseOllamaLine(line: string): string {
+  if (!line.trim()) return "";
+  try {
+    const chunk = JSON.parse(line) as OllamaChunk;
+    return chunk.message?.content ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Fully local inference via Ollama — the on-prem deployment mode (data never leaves the machine). */
+export class OllamaChat implements ChatProvider {
+  readonly name = "ollama";
+  constructor(
+    private model = process.env.ASKREPO_OLLAMA_MODEL || "qwen2.5-coder:7b",
+    private baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+  ) {}
+
+  async chat(messages: Message[], _tools: ToolSpec[], opts: ChatOptions = {}): Promise<ChatResult> {
+    const res = await fetch(`${this.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: this.model,
+        stream: true,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      }),
+    });
+    if (!res.ok || !res.body) throw new Error(`Ollama ${res.status}: is the server running at ${this.baseUrl}?`);
+
+    let text = "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const piece = parseOllamaLine(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        if (piece) { text += piece; opts.onToken?.(piece); }
+      }
+    }
+    return { text, toolCalls: [] };
+  }
+}
+
 /* ----------------------------------- SSE ----------------------------------- */
 
 /** Parse an SSE body stream into JSON payloads (OpenAI-style: data lines only). */

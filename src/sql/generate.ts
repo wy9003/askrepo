@@ -20,16 +20,23 @@ Rules:
 - If the question is ambiguous, choose the most common business interpretation and proceed.
 - Output ONLY the SQL inside one \`\`\`sql fenced block. No prose before or after.`;
 
-export function buildSqlMessages(ctx: SqlContext) {
+export function buildSqlMessages(ctx: SqlContext, repairNote?: string) {
   const schema = ctx.tables.map((t) => t.ddl + ";").join("\n\n");
   const joins = ctx.joins.length ? ctx.joins.map((j) => `- ${j}`).join("\n") : "- (single table)";
-  return [
+  const messages = [
     { role: "system" as const, content: SQL_SYSTEM_PROMPT },
     {
       role: "user" as const,
       content: `Schema (SQLite DDL):\n\n${schema}\n\nJoins (foreign keys):\n${joins}\n\nQuestion: ${ctx.question}\n\nReturn the SQL.`,
     },
   ];
+  if (repairNote) {
+    messages.push({
+      role: "user" as const,
+      content: `Your previous attempt was rejected:\n${repairNote}\n\nFix the SQL and return it. Same rules: only the \`\`\`sql block.`,
+    });
+  }
+  return messages;
 }
 
 /** Pull the SQL out of a model reply: ```sql fence first, else first SELECT/WITH statement. */
@@ -40,8 +47,8 @@ export function extractSQL(text: string): string {
   return (stmt ? stmt[1] ?? candidate : candidate).replace(/;\s*$/, "").trim();
 }
 
-export async function generateSQL(provider: ChatProvider, ctx: SqlContext): Promise<string> {
-  const res = await provider.chat(buildSqlMessages(ctx), [], {});
+export async function generateSQL(provider: ChatProvider, ctx: SqlContext, repairNote?: string): Promise<string> {
+  const res = await provider.chat(buildSqlMessages(ctx, repairNote), [], {});
   const sql = extractSQL(res.text);
   if (!sql) throw new Error("model returned no SQL");
   return sql;
