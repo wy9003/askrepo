@@ -12,7 +12,7 @@ import { createToolExecutor } from "./tools.ts";
 const INDEX_FILE = ".askrepo/index.json";
 
 interface Args {
-  command: "index" | "ask" | "help";
+  command: "index" | "ask" | "sql" | "help";
   root: string;
   provider: string;
   offline: boolean;
@@ -41,8 +41,9 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--max-steps") args.maxSteps = Number(argv[++i]) || args.maxSteps;
     else rest.push(a);
   }
-  if (rest[0] === "index" || rest[0] === "ask") args.command = rest[0];
+  if (rest[0] === "index" || rest[0] === "ask" || rest[0] === "sql") args.command = rest[0];
   if (rest[0] === "ask") args.question = rest.slice(1).join(" ");
+  if (rest[0] === "sql") args.question = rest.slice(1).join(" "); // "init" | "ask <question>"
   return args;
 }
 
@@ -123,7 +124,40 @@ async function cmdAsk(args: Args): Promise<void> {
 const args = parseArgs(process.argv.slice(2));
 if (args.command === "index") await cmdIndex(args);
 else if (args.command === "ask") await cmdAsk(args);
-else {
+else if (args.command === "sql") {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { mkdir } = await import("node:fs/promises");
+  const sub = args.question.split(" ")[0]; // sql subcommand stored in question slot
+  const question = args.question.split(" ").slice(1).join(" ");
+  const dbPath = join(args.root, ".askrepo/demo.db");
+  await mkdir(join(args.root, ".askrepo"), { recursive: true });
+  if (sub === "init") {
+    const { seedDemo } = await import("./sql/seed.ts");
+    const db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA journal_mode = MEMORY");
+    for (const t of db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]) {
+      db.exec(`DROP TABLE IF EXISTS "${t.name}"`);
+    }
+    seedDemo(db);
+    console.error(`Seeded demo database → ${dbPath}`);
+  } else if (sub === "ask") {
+    if (!question) { console.error('Usage: askrepo sql ask "your question"'); process.exit(1); }
+    const { askSql } = await import("./sql/index.ts");
+    const { MockEmbedder } = await import("./embed.ts");
+    const { ScriptedSqlProvider } = await import("./sql/offline.ts");
+    const provider = args.offline ? new ScriptedSqlProvider() : makeChatProvider(args.provider);
+    const embedder = args.offline ? new MockEmbedder() : makeEmbedder(args.offline);
+    const db = new DatabaseSync(dbPath);
+    const res = await askSql(db, question, { provider, embedder });
+    console.error(`tables: ${res.tablesUsed.join(", ")}${res.addedByClosure.length ? " (closure added: " + res.addedByClosure.join(", ") + ")" : ""}`);
+    console.log(`\`\`\`sql\n${res.sql}\n\`\`\``);
+    console.log(`rows: ${res.rowCount}${res.truncated ? " (truncated)" : ""}`);
+    console.table(res.rows.slice(0, 20));
+  } else {
+    console.error('Usage: askrepo sql init | ask "question"');
+    process.exit(1);
+  }
+} else {
   console.log(`askrepo — chat with any codebase (RAG + tool-using agent)
 
 Usage:
