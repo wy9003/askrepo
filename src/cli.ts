@@ -173,8 +173,17 @@ else if (args.command === "sql") {
     await writeFile(join(args.root, ".askrepo/eval-report.md"), report);
     console.log(report);
     console.error(`\nreport → ${join(args.root, ".askrepo/eval-report.md")}`);
+  } else if (sub === "adv") {
+    const { seedDemo } = await import("./sql/seed.ts");
+    const { runAdversarial, formatAdversarial } = await import("./sql/eval/adversarial.ts");
+    const db = new DatabaseSync(":memory:");
+    seedDemo(db);
+    const provider = args.offline ? new (await import("./sql/offline.ts")).ScriptedSqlProvider() : makeChatProvider(args.provider);
+    const embedder = args.offline ? new MockEmbedder() : makeEmbedder(args.offline);
+    const results = await runAdversarial(db, { provider, embedder });
+    console.log(formatAdversarial(results));
   } else {
-    console.error('Usage: askrepo sql init | ask "question" | eval [--limit N] [--ab]');
+    console.error('Usage: askrepo sql init | ask "question" | eval [--limit N] [--ab] | adv');
     process.exit(1);
   }
 } else {

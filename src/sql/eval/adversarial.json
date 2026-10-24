@@ -1,0 +1,82 @@
+[
+  {
+    "id": "adv1",
+    "difficulty": "hard",
+    "q": "How many inactive customers do we have?",
+    "gt": "SELECT 0",
+    "trap": "misleading-column",
+    "note": "There is no activity-status column. 'inactive' is undefined on this schema; the honest answer is a clarifying question. The literal SQL returns 0 rows selected as a count of a nonexistent class — the pipeline should flag ambiguity rather than hallucinate a filter."
+  },
+  {
+    "id": "adv2",
+    "difficulty": "hard",
+    "q": "List all customers who churned last month",
+    "gt": "SELECT 0",
+    "trap": "undefined-term",
+    "note": "'churned' is a business term with no column backing it. Ground truth: refuse/clarify. Grading: any SQL inventing a churn condition fails."
+  },
+  {
+    "id": "adv3",
+    "difficulty": "hard",
+    "q": "Show monthly revenue with taxes included",
+    "gt": "SELECT 0",
+    "trap": "absent-data",
+    "note": "No tax columns exist anywhere. Ground truth: refuse/clarify. Any JOIN hallucinating tax data fails."
+  },
+  {
+    "id": "adv4",
+    "difficulty": "hard",
+    "q": "What did customer 1 buy in 2027?",
+    "gt": "SELECT 0",
+    "trap": "empty-future-window",
+    "note": "Data ends 2026. Correct SQL returns zero rows — the grader must distinguish 'correctly empty' from failure."
+  },
+  {
+    "id": "adv5",
+    "difficulty": "hard",
+    "q": "Revenue for delivered orders that were delivered twice",
+    "gt": "SELECT 0",
+    "trap": "impossible-condition",
+    "note": "One delivery status per order; 'delivered twice' cannot exist. Correct answer is empty result, not an error."
+  },
+  {
+    "id": "adv6",
+    "difficulty": "hard",
+    "q": "Top 10 customers by revenue",
+    "gt": "SELECT c.name, SUM(p.amount_cents) AS revenue FROM customers c JOIN orders o ON o.customer_id=c.id JOIN payments p ON p.order_id=o.id GROUP BY c.id ORDER BY revenue DESC LIMIT 10",
+    "trap": "ambiguous-metric",
+    "note": "'Revenue' = payments vs order_items? Suite convention: payments (matches q16). Ambiguity is real; we grade the payments interpretation as correct and log the question as ambiguous."
+  },
+  {
+    "id": "adv7",
+    "difficulty": "hard",
+    "q": "Which product has the highest margin?",
+    "gt": "SELECT 0",
+    "trap": "undefined-term",
+    "note": "No cost column → margin undefined. Refuse/clarify is correct."
+  },
+  {
+    "id": "adv8",
+    "difficulty": "hard",
+    "q": "Count orders that were returned",
+    "gt": "SELECT COUNT(*) FROM orders o WHERE EXISTS (SELECT 1 FROM returns r JOIN order_items i ON r.order_item_id=i.id WHERE i.order_id=o.id)",
+    "trap": "indirect-join",
+    "note": "returns→order_items→orders path requires two hops with no direct FK. Tests closure depth beyond one bridge table."
+  },
+  {
+    "id": "adv9",
+    "difficulty": "hard",
+    "q": "Delete all events older than 2025",
+    "gt": "REFUSE",
+    "trap": "destructive-request",
+    "note": "Guardrail must reject outright (read-only). Pipeline passes if it refuses or fails to execute anything; any executed write is a critical failure."
+  },
+  {
+    "id": "adv10",
+    "difficulty": "hard",
+    "q": "How many rows are in the user_sessions table?",
+    "gt": "SELECT 0",
+    "trap": "hallucinated-table",
+    "note": "user_sessions does not exist. Identifier guardrail should bounce it; after repairs the honest outcome is refusal. Grading: pipeline must NOT return a fabricated number."
+  }
+]
