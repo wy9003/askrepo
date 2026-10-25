@@ -67,9 +67,19 @@ A 40-question suite (easy/medium/hard + deliberately ambiguous) over a determini
 npx tsx src/cli.ts sql eval --provider openai          # full suite
 npx tsx src/cli.ts sql eval --provider openai --ab     # with/without FK closure
 npx tsx src/cli.ts sql eval --provider ollama          # fully local run
+npx tsx src/cli.ts sql adv                              # adversarial suite
 ```
 
 `--ab` answers the question that actually matters: **how many points does join-path closure add?**
+
+**Measured** (glm-4.7 via OpenAI-compatible endpoint, 2026-10-25):
+
+| run | accuracy | easy | medium | hard | failures by class |
+|---|---|---|---|---|---|
+| **closure on** | **83%** (33/40) | 15/15 | 12/15 | 6/10 | 1 schema · 1 join · 5 logic |
+| closure off | 78% (31/40) | 15/15 | 10/15 | 6/10 | 2 schema · 7 logic |
+
+Read: with the FK graph supplying join paths, join errors disappear and schema errors halve; the remaining failures are business-logic interpretation, not plumbing. The adversarial suite (`sql adv`) grades a different dimension — whether the pipeline *refuses to fabricate* on questions that have no honest answer.
 
 ## Deployment modes (data boundaries as configuration, not code)
 
