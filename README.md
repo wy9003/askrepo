@@ -72,14 +72,18 @@ npx tsx src/cli.ts sql adv                              # adversarial suite
 
 `--ab` answers the question that actually matters: **how many points does join-path closure add?**
 
-**Measured** (glm-4.7 via OpenAI-compatible endpoint, 2026-10-25):
+**Measured** (via OpenAI-compatible endpoints, 2026-10-25):
 
-| run | accuracy | easy | medium | hard | failures by class |
-|---|---|---|---|---|---|
-| **closure on** | **83%** (33/40) | 15/15 | 12/15 | 6/10 | 1 schema · 1 join · 5 logic |
-| closure off | 78% (31/40) | 15/15 | 10/15 | 6/10 | 2 schema · 7 logic |
+| model | closure | accuracy | easy | medium | hard | failures by class |
+|---|---|---|---|---|---|---|
+| glm-4.7 | **on** | **83%** (33/40) | 15/15 | 12/15 | 6/10 | 1 schema · 1 join · 5 logic |
+| glm-4.7 | off | 78% (31/40) | 15/15 | 10/15 | 6/10 | 2 schema · 7 logic |
+| glm-5 | **on** | 80% (32/40) | 15/15 | 12/15 | 5/10 | 1 schema · 0 join · 7 logic |
+| glm-5 | off | 75% (30/40) | 15/15 | 10/15 | 5/10 | 2 schema · 8 logic |
 
-Read: with the FK graph supplying join paths, join errors disappear and schema errors halve; the remaining failures are business-logic interpretation, not plumbing. The adversarial suite (`sql adv`) grades a different dimension — whether the pipeline *refuses to fabricate* on questions that have no honest answer.
+Two findings hold across models: **join errors go to zero with closure on** (the FK graph supplies the join paths), and the remaining failures concentrate in business-logic interpretation — the semantic layer, not plumbing. Newer ≠ better per-task: glm-5 trails glm-4.7 by 3 points on this suite.
+
+The adversarial suite (`sql adv`) grades a different dimension — whether the pipeline *refuses to fabricate* on questions that have no honest answer. glm-4.7 scores **4/10**: guardrails caught 100% of destructive requests and hallucinated tables (code-level wins), but the model fabricates filters for undefined business terms 6/10 times ("inactive customers", "margin") — a measured motivation for a semantic/business-glossary layer.
 
 ## Deployment modes (data boundaries as configuration, not code)
 
