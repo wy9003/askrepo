@@ -7,6 +7,7 @@ import { selectTables, generateSQL } from "./generate.ts";
 import { execQuery, type QueryResult } from "./execute.ts";
 import { applyGuardrails, explainGuard } from "./guardrails.ts";
 import { closure } from "./fkgraph.ts";
+import { resolveTerms, semanticInstructions } from "./semantic.ts";
 
 export interface AskOptions {
   provider: ChatProvider;
@@ -42,7 +43,8 @@ export async function askSql(db: DatabaseSync, question: string, opts: AskOption
   const picked = opts.closureEnabled === false
     ? { tables: scored.slice(0, opts.topK ?? 4).map((n) => schema.tables.find((t) => t.name === n)!).filter(Boolean), added: [], joins: [] as string[] }
     : selectTables(schema.tables, schema.foreignKeys, scored, opts.topK ?? 4);
-  const ctx = { dialect: "sqlite", tables: picked.tables, joins: picked.joins, question };
+  const semantic = semanticInstructions(resolveTerms(question));
+  const ctx = { dialect: "sqlite", tables: picked.tables, joins: picked.joins, question, semanticNote: semantic || undefined };
 
   let repairs = 0;
   const rejected: string[] = [];

@@ -8,6 +8,7 @@ export interface SqlContext {
   tables: TableMeta[]; // selected (post-closure) tables
   joins: string[]; // FK join conditions
   question: string;
+  semanticNote?: string; // grounded/ungrounded business terms from the glossary
 }
 
 export const SQL_SYSTEM_PROMPT = `You are an expert SQL analyst. You translate a natural-language question into ONE SQL query.
@@ -24,7 +25,7 @@ export function buildSqlMessages(ctx: SqlContext, repairNote?: string) {
   const schema = ctx.tables.map((t) => t.ddl + ";").join("\n\n");
   const joins = ctx.joins.length ? ctx.joins.map((j) => `- ${j}`).join("\n") : "- (single table)";
   const messages = [
-    { role: "system" as const, content: SQL_SYSTEM_PROMPT },
+    { role: "system" as const, content: SQL_SYSTEM_PROMPT + (ctx.semanticNote ? "\n\n" + ctx.semanticNote : "") },
     {
       role: "user" as const,
       content: `Schema (SQLite DDL):\n\n${schema}\n\nJoins (foreign keys):\n${joins}\n\nQuestion: ${ctx.question}\n\nReturn the SQL.`,

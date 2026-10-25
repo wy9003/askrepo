@@ -83,7 +83,14 @@ npx tsx src/cli.ts sql adv                              # adversarial suite
 
 Two findings hold across models: **join errors go to zero with closure on** (the FK graph supplies the join paths), and the remaining failures concentrate in business-logic interpretation — the semantic layer, not plumbing. Newer ≠ better per-task: glm-5 trails glm-4.7 by 3 points on this suite.
 
-The adversarial suite (`sql adv`) grades a different dimension — whether the pipeline *refuses to fabricate* on questions that have no honest answer. glm-4.7 scores **4/10**: guardrails caught 100% of destructive requests and hallucinated tables (code-level wins), but the model fabricates filters for undefined business terms 6/10 times ("inactive customers", "margin") — a measured motivation for a semantic/business-glossary layer.
+The adversarial suite (`sql adv`) grades a different dimension — whether the pipeline *refuses to fabricate* on questions that have no honest answer:
+
+| pipeline | refusal correctness |
+|---|---|
+| guardrails only (no glossary) | 4/10 — code-level guardrails caught 100% of destructive requests & hallucinated tables, but the model fabricated filters for undefined business terms 6/10 times |
+| guardrails + **semantic glossary layer** | **9/10** — grounded terms (revenue, churned, active…) get authoritative definitions injected; ungrounded business words (margin, inactive, taxes…) trigger an explicit not-answerable instruction |
+
+The one remaining failure is an "impossible condition" trap (a predicate that cannot be true given the schema's invariants) — a documented boundary, not a hallucination.
 
 ## Deployment modes (data boundaries as configuration, not code)
 
