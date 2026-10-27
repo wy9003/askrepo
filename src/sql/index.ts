@@ -16,6 +16,9 @@ export interface AskOptions {
   schema?: Schema; // pre-introspected (tests / repeated calls)
   closureEnabled?: boolean; // A/B switch for the eval harness (default true)
   maxRepairRounds?: number; // default 3
+  /** Escape hatch for the learn loop: extra system content appended to the
+   *  glossary instructions (a candidate patch, verified in-memory). */
+  extraSystemNote?: string;
 }
 
 export interface AskResult extends QueryResult {
@@ -43,7 +46,7 @@ export async function askSql(db: DatabaseSync, question: string, opts: AskOption
   const picked = opts.closureEnabled === false
     ? { tables: scored.slice(0, opts.topK ?? 4).map((n) => schema.tables.find((t) => t.name === n)!).filter(Boolean), added: [], joins: [] as string[] }
     : selectTables(schema.tables, schema.foreignKeys, scored, opts.topK ?? 4);
-  const semantic = semanticInstructions(resolveTerms(question));
+  const semantic = [semanticInstructions(resolveTerms(question)), opts.extraSystemNote].filter(Boolean).join("\n\n");
   const ctx = { dialect: "sqlite", tables: picked.tables, joins: picked.joins, question, semanticNote: semantic || undefined };
 
   let repairs = 0;
