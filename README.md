@@ -83,6 +83,12 @@ npx tsx src/cli.ts sql adv                              # adversarial suite
 
 Two findings hold across models: **join errors go to zero with closure on** (the FK graph supplies the join paths), and the remaining failures concentrate in business-logic interpretation — the semantic layer, not plumbing. Newer ≠ better per-task: glm-5 trails glm-4.7 by 3 points on this suite.
 
+### Self-improvement loop (learn)
+
+Failed questions are auto-classified (schema → retrieval-hint patch, logic → semantic-term patch) and each candidate patch is **machine-verified in-memory**: the failed question is re-run with the patch injected; only a fail→pass flip earns the `verified` tag. A human then reviews whether the fix is *desirable* — not whether it works.
+
+**Measured** (glm-4.7, 2026-10-27): baseline 32/40 → **7/8 failed questions flipped to pass** with targeted glossary patches → theoretical 39/40. The one unfixed case (#34, schema-class) needed a structural change beyond a glossary patch.
+
 The adversarial suite (`sql adv`) grades a different dimension — whether the pipeline *refuses to fabricate* on questions that have no honest answer:
 
 | pipeline | refusal correctness |
